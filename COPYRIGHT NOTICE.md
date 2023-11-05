@@ -16,7 +16,7 @@ Grant of License: Mr Szymon Procak grants you a personal, non-transferable, and 
 Personal and Non-Commercial Use Limitation: The Software is for personal and non-commercial use only.
 It may not be copied, reproduced, distributed, transmitted, broadcast, displayed, sold, licensed, or otherwise exploited for any commercial purposes without the prior written consent of Mr Szymon Procak.
 
-Modification and Reverse Engineering: You may not modify, adapt, translate, decompile, disassemble, or create derivative works based on the Software, except as explicitly permitted by law without the possibility of contractual waiver or with the prior written consent of [Your Full Name].
+Modification and Reverse Engineering: You may not modify, adapt, translate, decompile, disassemble, or create derivative works based on the Software, except as explicitly permitted by law without the possibility of contractual waiver or with the prior written consent of Mr Szymon Procak.
 Distribution: Redistribution of the Software in any form is prohibited without the prior written consent of Mr Szymon Procak.
 
 Attribution: Proper credit must be given to Mr Szymon Procak, the author and copyright owner, for any results generated through the use of the Software and for any portion of the Software included in another work.
