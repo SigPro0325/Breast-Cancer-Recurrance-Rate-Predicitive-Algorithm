@@ -1,0 +1,251 @@
+# Importing All Necessary Tools
+import pandas as pd
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import accuracy_score, classification_report, roc_curve, auc
+from keras.models import Sequential
+from keras.layers import Dense, Dropout
+from bayes_opt import BayesianOptimization
+from keras.callbacks import TensorBoard
+import datetime
+import logging
+import numpy as np
+import matplotlib.pyplot as plt
+from keras.optimizers import Adam
+from typing import Union
+
+# Logging Setup
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Function to Check If a Column Exists in the DataFrame and Optionally Convert Its Dtype
+def check_and_cast_column(df: pd.DataFrame, column_name: str, dtype: Union[type, str] = None) -> bool:
+    if column_name in df.columns:
+        if dtype:
+            df[column_name] = df[column_name].astype(dtype)
+        return True
+    else:
+        logging.warning(f"Column '{column_name}' not found.")
+        return False
+
+# Function to Determine Column Type
+def determine_column_type(df: pd.DataFrame, col_name: str) -> str:
+    if df[col_name].dtype == 'object' or df[col_name].nunique() < 10:
+        return 'categorical'
+    else:
+        return 'numerical'
+
+# Load the Data
+data_path = input("Please enter the path to your data file: ")
+try:
+    data = pd.read_excel(data_path)
+    logging.info("Successfully loaded the data.")
+except Exception as e:
+    logging.error(f"An error occurred while loading the data: {e}")
+
+# Plotting distribution of all numerical features
+for col in data.select_dtypes(include=[np.number]).columns:
+    plt.figure()
+    plt.hist(data[col], bins=50)
+    plt.title(f"Distribution of {col}")
+    plt.show()
+
+try:
+    data = pd.read_excel(data_path)
+    logging.info("Successfully loaded the data.")
+    
+    logging.info(f"Summary Statistics: \n{data.describe()}")
+    if len(categorical_columns) > 0:
+        logging.info("Categorical Value Counts:")
+        for col in categorical_columns:
+            logging.info(f"{col}: \n{data[col].value_counts()} \n")
+    
+except Exception as e:
+    logging.error(f"An error occurred while loading the data: {e}")
+
+
+
+# Show Available Columns
+logging.info(f"Available columns in the dataset: {data.columns.tolist()}")
+
+# Ask User to Specify Target Column
+target_column = input("Please enter the name of the target column: ")
+
+# Check and Potentially Cast the Target Column
+if check_and_cast_column(data, target_column):
+    # Identify Feature Columns Dynamically
+    feature_columns = [col for col in data.columns if col != target_column]
+    
+    # Check for Consistent DataTypes in Target Column
+    if len(data[target_column].apply(type).unique()) > 1:
+        logging.warning("Inconsistent data types found in the target column. Please clean the dataset.")
+    
+    # Initialize LabelEncoder and Transform the Target Column
+    le = LabelEncoder()
+    try:
+        data[target_column] = le.fit_transform(data[target_column])
+        logging.info('Successfully encoded the target column.')
+    except Exception as e:
+        logging.error(f"An error occurred while encoding the target column: {e}")
+else:
+    logging.error(f"The specified target column {target_column} does not exist.")
+
+# Identify Categorical Columns Dynamically
+categorical_columns = [col for col in feature_columns if determine_column_type(data, col) == 'categorical']
+
+# Check and Potentially Cast Categorical Columns
+for col in categorical_columns:
+    if check_and_cast_column(data, col, dtype=str):
+        logging.info(f"Casted '{col}' as string for label encoding.")
+
+
+le = LabelEncoder()
+data['Class'] = le.fit_transform(data['Class'])
+
+# Encode the 'Class' column
+# LabelEncoder will map each unique string in 'Class' to an integer, 
+# making it easier for machine learning models to understand the data
+
+# The mapping is stored in the 'le' object, and applied to the 'Class' column.
+
+# Loop through all columns except the last one (presumably the target variable)
+# Here I can be checking for 'object' dtype, which usually indicates a textual or categorical field
+for column in data.columns[:-1]:
+    if data[column].dtype == 'object':
+        le = LabelEncoder()
+        data[column] = le.fit_transform(data[column])
+
+# At this point, all 'object' type columns, including 'Class', have been encoded 
+# into integers and are ready for machine learning.
+
+# Split and standardize
+X = data.drop('Class', axis=1)
+y = data['Class']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Plotting distribution of all features after scaling
+for i in range(X_train_scaled.shape[1]):
+    plt.figure()
+    plt.hist(X_train_scaled[:, i], bins=50)
+    plt.title(f"Distribution of feature {feature_columns[i]} after scaling")
+    plt.show()
+
+
+#Here i define the objective function for Bayesian Optimization.
+#This function will be maximized by the Baysesian Optimization
+def objective(num_layers, num_neurons, batch_size, learning_rate):
+    #Moving onto the float parameters to intergers, as required by the model.
+    num_layers = int(num_layers)
+    num_neurons = int(num_neurons)
+    batch_size = int(batch_size)
+    #Creates the Sequential Model
+    model = Sequential()
+    #This add the input layer with 'relu' Activation
+    model.add(Dense(num_neurons, input_dim=X_train_scaled.shape[1], activation='relu'))
+    # Adds additional hidden layers. The number of hidden layers and neurons are provided by the bayesian Optimization
+    for i in range(num_layers - 1):
+        model.add(Dense(num_neurons, activation='relu'))
+    # Adds the output layer with the 'sigmoid' activation for binary classification
+    model.add(Dense(1, activation='sigmoid'))
+    #Initialises the Adam Optimizer with the learning rate provided by the Bayesian Optimization
+    #Here the program begings to compile the model. I use the binary cross-entropy as the loss
+    # function with the custom Adam optimizer 
+    custom_optimizer = Adam(learning_rate=learning_rate)  # Include learning rate
+    model.compile(loss='binary_crossentropy', optimizer=custom_optimizer, metrics=['accuracy'])
+    
+    model.fit(X_train_scaled, y_train, epochs=50, batch_size=batch_size, verbose=0)
+    y_pred = (model.predict(X_test_scaled) > 0.5).astype("int32")
+    #Returns the overall accuracy score as the objective to maximise 
+    return accuracy_score(y_test, y_pred)
+
+# Creates a Bayesian optimization onbject and then passes the objective function and parameter
+#therefore bounds to it 
+pbounds = {'num_layers': (1, 3), 'num_neurons': (4, 128), 'batch_size': (5, 100), 'learning_rate': (0.0001, 0.01)}
+optimizer = BayesianOptimization(f=objective, pbounds=pbounds, random_state=1)
+#Starts the optimization process 
+optimizer.maximize(init_points=10, n_iter=50)
+
+# K-Fold Cross Validatio
+n_splits = 5
+kf = KFold(n_splits=n_splits, random_state=42, shuffle=True)
+fold_accuracy = []
+
+for train_index, test_index in kf.split(X):
+    # Logging to monitor the process
+    logging.info('Performing Fold...')
+    # Splitting the dataset into training and testing sets for the current fold
+
+    X_train_fold, X_test_fold = X.iloc[train_index], X.iloc[test_index]
+    y_train_fold, y_test_fold = y.iloc[train_index], y.iloc[test_index]
+    # Standardize the features
+    scaler = StandardScaler()
+    X_train_scaled_fold = scaler.fit_transform(X_train_fold)
+    X_test_scaled_fold = scaler.transform(X_test_fold)
+
+    custom_optimizer = Adam(learning_rate=0.001)
+    # Here I define and compile the model based on results from Bayesian optimization
+    # The architecture here can be adjusted based on the best parameters discovered 
+    model = Sequential()
+    model.add(Dense(64, input_dim=X_train_scaled.shape[1], activation='relu'))
+    model.add(Dense(48, activation='relu'))
+    model.add(Dropout(0.2))
+    model.add(Dense(32, activation='relu'))
+    model.add(Dropout(0.2))
+    model.add(Dense(24, activation='relu'))
+    model.add(Dense(16, activation='relu'))
+    model.add(Dense(8, activation='relu'))
+    model.add(Dense(1, activation='sigmoid'))
+    
+    model.compile(loss='binary_crossentropy', optimizer=custom_optimizer, metrics=['accuracy'])
+     # Train the model for the current fold
+    model.fit(X_train_scaled_fold, y_train_fold, epochs=50, batch_size=20, verbose=0)
+    # Make predictions for the current fold
+    y_pred_fold = (model.predict(X_test_scaled_fold) > 0.5).astype("int32")
+     # Calculate the accuracy of the current fold
+    acc_fold = accuracy_score(y_test_fold, y_pred_fold)
+    fold_accuracy.append(acc_fold)
+     # Log the accuracy for the current fold
+    logging.info(f'Accuracy for fold: {acc_fold}')
+# Log the mean accuracy over all folds
+
+logging.info(f'Mean Accuracy: {np.mean(fold_accuracy)}')
+
+# TensorBoard
+log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+tensorboard_callback = TensorBoard(log_dir=log_dir, histogram_freq=1)
+
+# Final Training and Evaluation
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+model.fit(X_train_scaled, y_train, epochs=50, batch_size=20, callbacks=[tensorboard_callback])
+history = model.fit(X_train_scaled, y_train, validation_data=(X_test_scaled, y_test), epochs=50, batch_size=20, callbacks=[tensorboard_callback])
+
+plt.figure()
+plt.title('Learning Curves')
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+y_pred = (model.predict(X_test_scaled) > 0.5).astype("int32")
+logging.info('Evaluating the model...')
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# ROC Curve
+fpr, tpr, _ = roc_curve(y_test, y_pred)
+roc_auc = auc(fpr, tpr)
+plt.figure()
+plt.plot(fpr, tpr, color='darkorange', lw=1, label='ROC curve (area = %0.2f)' % roc_auc)
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic')
+plt.legend(loc="lower right")
+plt.show()
